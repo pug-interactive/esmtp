@@ -11,7 +11,7 @@
 
 %% API
 -export([encode/1, send/5,
-         msg/0, msg/3, msg/4,
+         msg/0, msg/3, msg/4, msg/5,
          from/1, to/1,
          add_text_part/2]).
 
@@ -23,21 +23,26 @@
 %% API
 %%====================================================================
 
-msg(To, From, Subject) ->
+msg() ->
     #mime_msg{boundary=invent_mime_boundary(),
+              headers=[{"Date", httpd_util:rfc1123_date()}]}.
+
+msg(To, From, Subject) ->
+    msg(To, From, Subject, undefined).
+
+msg(To, From, Subject, TextBody) ->
+    msg(?DEFAULT_MESSAGE_TYPE, To, From, Subject, TextBody).
+
+msg(Type, To, From, Subject, TextBody) ->
+    Msg = #mime_msg{boundary=invent_mime_boundary(),
+              type=Type,
               headers=[{"To", To},
                        {"Subject", Subject},
                        {"From", From},
                        {"Date", httpd_util:rfc1123_date()}
-                      ]}.
-
-msg(To, From, Subject, Body) ->
-    Msg = msg(To, From, Subject),
-    add_text_part(Msg, Body).
-
-msg() ->
-    #mime_msg{boundary=invent_mime_boundary(),
-              headers=[{"Date", httpd_util:rfc1123_date()}]}.
+                      ]},
+    
+    add_text_part(Msg, TextBody).
 
 encode(Msg) ->
     encode_headers(headers(Msg)) ++ "\r\n\r\n" ++
@@ -49,9 +54,14 @@ to(#mime_msg{headers=H}) ->
 
 from(#mime_msg{headers=H}) ->
     proplists:get_value("From", H, undefined).
-
+    
+add_text_part(Msg, undefined) ->
+    Msg;
 add_text_part(Msg = #mime_msg{parts=Parts}, Text) ->
     Msg#mime_msg{parts=Parts ++ [#mime_part{data=Text}]}.
+    
+send(Ip, Host, From, To, Msg=#mime_msg{}) ->
+    ok = smtpc:sendmail(Ip, Host, From, To, encode(Msg)).
 
 %%====================================================================
 %% Internal functions
@@ -72,12 +82,8 @@ test_msg() ->
 test() ->
     io:format("~s~n", [encode(test_msg())]).
 
-send(Ip, Host, From, To, Msg=#mime_msg{}) ->
-    ok = smtpc:sendmail(Ip, Host, From, To, encode(Msg)).
-
 send_test(Ip, Host, From, To) ->
     send(Ip, Host, From, To, test_msg()).
-
 
 encode_header({Header, [V|Vs]}) when is_list(V) ->
     Hdr = lists:map(fun ({K, Value}) when is_list(K), is_list(Value) ->
@@ -118,9 +124,9 @@ part_headers(#mime_part{type=Type, encoding={Enc, MimeType, Charset},
                               {"filename", 
                               Name}]}].
 
-headers(#mime_msg{headers=H, boundary=Boundary}) ->
+headers(#mime_msg{type=Type, headers=H, boundary=Boundary}) ->
     H ++ [{"MIME-Version", "1.0"},
-          {"Content-Type", ["multipart/mixed", 
+          {"Content-Type", [Type, 
                             "boundary=\"" ++ Boundary ++ "\""]}].
 
 invent_mime_boundary() ->
@@ -148,3 +154,24 @@ join([H], _) ->
     H;
 join([], _) ->
     [].
+    
+%%====================================================================
+%% Eunit
+%%====================================================================
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
+msg_test() ->
+    {ok, P1} = re:compile("Date: .*\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed;\r\n  boundary=\"==========.*\"\r\n\r\n--==========.*--\r\n"),
+    ?assertMatch({match, _}, re:run(encode(msg()), P1)),
+
+    {ok, P2} = re:compile("To: to\r\nSubject: subject\r\nFrom: from\r\nDate: .*\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed;\r\n  boundary=\"==========.*\"\r\n\r\n--==========.*--\r\n"),
+    ?assertMatch({match, _}, re:run(encode(msg("to", "from", "subject")), P2)),
+    
+    {ok, P3} = re:compile("To: to\r\nSubject: subject\r\nFrom: from\r\nDate: .*\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed;\r\n  boundary=\"==========.*\"\r\n\r\n--==========.*\r\nContent-Transfer-Encoding: 7bit\r\nContent-Type: text/plain;\r\n  charset=iso-8859-1\r\n\r\ntext body\r\n--==========.*--\r\n"),
+    ?assertMatch({match, _}, re:run(encode(msg("to", "from", "subject", "text body")), P3)),
+    
+    {ok, P4} = re:compile("To: to\r\nSubject: subject\r\nFrom: from\r\nDate: .*\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative;\r\n  boundary=\"==========.*\"\r\n\r\n--==========.*\r\nContent-Transfer-Encoding: 7bit\r\nContent-Type: text/plain;\r\n  charset=iso-8859-1\r\n\r\ntext body\r\n--==========.*--\r\n"),
+    ?assertMatch({match, _}, re:run(encode(msg(?MULTIPART_ALTERNATIVE_TYPE, "to", "from", "subject", "text body")), P4)),
+    ok.
