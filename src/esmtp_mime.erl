@@ -160,7 +160,6 @@ join([], _) ->
 %%====================================================================
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--endif.
 
 msg_test() ->
     {ok, P1} = re:compile("Date: .*\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed;\r\n  boundary=\"==========.*\"\r\n\r\n--==========.*--\r\n"),
@@ -175,3 +174,5 @@ msg_test() ->
     {ok, P4} = re:compile("To: to\r\nSubject: subject\r\nFrom: from\r\nDate: .*\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative;\r\n  boundary=\"==========.*\"\r\n\r\n--==========.*\r\nContent-Transfer-Encoding: 7bit\r\nContent-Type: text/plain;\r\n  charset=iso-8859-1\r\n\r\ntext body\r\n--==========.*--\r\n"),
     ?assertMatch({match, _}, re:run(encode(msg(?MULTIPART_ALTERNATIVE_TYPE, "to", "from", "subject", "text body")), P4)),
     ok.
+
+-endif.
