@@ -137,7 +137,7 @@ list_rand(List, N) ->
               lists:seq(1,N)).
 
 list_rand(List) when is_list(List) ->
-    lists:nth(random:uniform(length(List)), List).
+    lists:nth(rand:uniform(length(List)), List).
 
 boundary_chars() ->
     "abcdefghijklmnopqrstuvwxyz"
